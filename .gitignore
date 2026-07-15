@@ -1,0 +1,26 @@
+# --- Scraped data & vector store: large + regenerable, DO NOT commit ---
+giki_scraper/giki_scrape/
+giki_rag/chroma_db/
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# --- Secrets ---
+.env
+*.key
+
+# --- Logs / temp ---
+*.log
+*.out
+*.tmp
+
+# --- OS ---
+Thumbs.db
+.DS_Store
+desktop.ini
