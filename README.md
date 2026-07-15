@@ -1,5 +1,45 @@
 # GIKI Scrape + Multimodal RAG (Internship Project)
 
+<!-- ============================================================= -->
+<!-- RESUME POINT — a Claude on another PC should READ THIS FIRST.  -->
+<!-- Keep this block updated as tasks complete.                    -->
+<!-- ============================================================= -->
+## 📍 PROJECT STATUS — resume here
+
+**Last updated:** 2026-07-15 · **Phase:** 1 of 2 (scraping in progress)
+
+### Where we are
+- [x] Scraper built & tested (`giki_scraper/`)
+- [x] Completeness audit tool built (`giki_scraper/verify.py`)
+- [x] URL list collected — **3,370 pages** (`collect_urls.py` done)
+- [~] **Scraping in progress — ~1,210 / 3,370 pages done** (resumable)
+- [x] Multimodal RAG scaffold built & smoke-tested on partial data (`giki_rag/`)
+- [ ] Full scrape complete + final audit
+- [ ] Full `ingest.py` run (build complete vector store)
+- [ ] End-to-end RAG demo (`chat.py`)
+
+### How to resume (on any PC)
+The scraped data/vector store are NOT in git (large + regenerable). On a fresh
+machine you must rebuild them:
+```bash
+cd giki_scraper && pip install -r requirements.txt
+python collect_urls.py && python scrape.py   # resumable; re-run until verify.py is clean
+python verify.py                             # confirm 100% coverage
+cd ../giki_rag && pip install -r requirements.txt
+setx ANTHROPIC_API_KEY "sk-ant-..."          # then open a new shell
+python ingest.py --reset                     # build vector store
+python chat.py "What programs does GIKI offer?"
+```
+If the data folders were copied over manually (via cloud storage), skip the
+scrape and go straight to `ingest.py`.
+
+### Known notes / gotchas
+- giki.edu.pk has a broken SSL cert chain → `VERIFY_SSL=False` in config (intentional).
+- Dead hosts `beta1.` / `www.` rewritten to live domain automatically.
+- ~34 images + ~5 files are hard 404s at the source (2015-era, deleted) — unrecoverable, not a bug.
+- Defaults: ChromaDB · text=all-MiniLM-L6-v2 · images=CLIP clip-ViT-B-32 · LLM=claude-opus-4-8.
+<!-- ============================================================= -->
+
 Two-stage project:
 1. **`giki_scraper/`** — archives the entire [giki.edu.pk](https://giki.edu.pk)
    website: page text, images (with captions/alt), and files (PDFs/docs).
