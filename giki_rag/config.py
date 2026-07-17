@@ -31,9 +31,20 @@ TOP_K_TEXT = 6          # text chunks to retrieve per query
 TOP_K_IMAGES = 3        # images to retrieve per query
 MIN_IMAGE_SCORE = 0.20  # skip weakly-matched images (cosine similarity)
 
-# --- Answer generation (Claude) --------------------------------------------
-# Per Anthropic defaults; change to "claude-sonnet-4-6" / "claude-haiku-4-5"
-# to trade quality for cost/speed.
+# --- Answer generation -----------------------------------------------------
+# Which LLM writes the final answer:
+#   "ollama"    -> a local, free, offline vision model (default)
+#   "anthropic" -> Claude via API (needs ANTHROPIC_API_KEY + credits)
+# Both read the retrieved IMAGES as well as the text (multimodal).
+LLM_BACKEND = "ollama"
+
+# -- Local backend (Ollama) --
+# Qwen2.5-VL 3B: vision-capable and ~3.2GB, so it fits a 6GB GPU comfortably.
+OLLAMA_MODEL = "qwen2.5vl:3b"
+OLLAMA_URL = "http://localhost:11434"
+OLLAMA_TIMEOUT = 300          # local generation can be slow on a laptop GPU
+
+# -- Cloud backend (Claude), used only if LLM_BACKEND == "anthropic" --
 ANSWER_MODEL = "claude-opus-4-8"
 MAX_TOKENS = 16000
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")

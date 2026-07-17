@@ -1,22 +1,25 @@
 """
 Step 4 — Multimodal RAG answers.
 
-Retrieve relevant text + images for a question, then ask Claude (Opus 4.8) to
-answer using ONLY that context, with citations to source page URLs. Retrieved
-images are passed to Claude as real image blocks, so it can reason over visuals
-(photos, charts, posters), not just their captions.
+Retrieves relevant text + images for a question, then asks a vision-capable LLM
+to answer using ONLY that context, citing source page URLs. Retrieved images are
+passed to the model as real images, so it reasons over visuals (photos, charts,
+posters) — not just their captions.
+
+Two interchangeable backends (set LLM_BACKEND in config.py):
+  "ollama"    -> local, free, offline (Qwen2.5-VL)   [default]
+  "anthropic" -> Claude via API (needs ANTHROPIC_API_KEY)
 
 Run:
     python chat.py                       # interactive Q&A loop
     python chat.py "your question here"  # single question
-
-Requires:  set ANTHROPIC_API_KEY in your environment.
 """
 import base64
+import json
 import mimetypes
 import sys
 
-import anthropic
+import requests
 
 import config
 from retrieve import retrieve
@@ -32,89 +35,166 @@ SYSTEM_PROMPT = (
     "- Be concise and accurate."
 )
 
+# Image formats both backends accept.
+OK_MEDIA = ("image/jpeg", "image/png", "image/gif", "image/webp")
 
-def _image_block(local_path):
-    """Build an Anthropic image content block from a local file, or None."""
-    path = config.IMAGE_DIR / local_path
-    if not path.exists():
-        return None
-    media_type, _ = mimetypes.guess_type(str(path))
-    if media_type not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
-        return None                      # Claude supports these image types
-    data = base64.standard_b64encode(path.read_bytes()).decode("utf-8")
-    return {
-        "type": "image",
-        "source": {"type": "base64", "media_type": media_type, "data": data},
+
+# --------------------------------------------------------------------------
+# Shared context assembly
+# --------------------------------------------------------------------------
+def _usable_images(retrieved):
+    """Retrieved images that exist on disk and are a supported format."""
+    out = []
+    for im in retrieved["images"]:
+        if len(out) >= config.MAX_IMAGES_TO_LLM:
+            break
+        path = config.IMAGE_DIR / im["local_path"]
+        if not path.exists():
+            continue
+        media_type, _ = mimetypes.guess_type(str(path))
+        if media_type not in OK_MEDIA:
+            continue
+        out.append((im, path, media_type))
+    return out
+
+
+def _text_context(retrieved):
+    parts = ["# Retrieved text context\n"]
+    for i, t in enumerate(retrieved["text"], 1):
+        parts.append(f"[{i}] (source: {t['url']})\nTitle: {t['title']}\n"
+                     f"{t['text']}\n")
+    return "\n".join(parts)
+
+
+def _caption_lines(images):
+    if not images:
+        return ""
+    lines = ["\n# Attached images"]
+    for i, (im, _, _) in enumerate(images, 1):
+        caption = im["caption"] or im["alt"] or "(no caption)"
+        lines.append(f"Image {i} (source: {im['url']}) — caption: {caption}")
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
+# Backend: Ollama (local, free)
+# --------------------------------------------------------------------------
+def _answer_ollama(query, retrieved, stream_to_stdout):
+    images = _usable_images(retrieved)
+    prompt = (f"{_text_context(retrieved)}"
+              f"{_caption_lines(images)}"
+              f"\n\n# Question\n{query}")
+
+    payload = {
+        "model": config.OLLAMA_MODEL,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt,
+             # Ollama takes images as raw base64 strings on the message.
+             "images": [base64.standard_b64encode(p.read_bytes()).decode()
+                        for _, p, _ in images]},
+        ],
+        "stream": True,
     }
 
+    try:
+        resp = requests.post(f"{config.OLLAMA_URL}/api/chat", json=payload,
+                             stream=True, timeout=config.OLLAMA_TIMEOUT)
+    except requests.ConnectionError:
+        raise SystemExit(
+            f"Cannot reach Ollama at {config.OLLAMA_URL}.\n"
+            "Start it with:  ollama serve\n"
+            f"And make sure the model is pulled:  ollama pull {config.OLLAMA_MODEL}")
+    resp.raise_for_status()
 
-def build_content(query, retrieved):
-    """Assemble the multimodal user message: text context + image blocks + question."""
-    blocks = []
-
-    # --- Text context ---
-    text_ctx = ["# Retrieved text context\n"]
-    for i, t in enumerate(retrieved["text"], 1):
-        text_ctx.append(f"[{i}] (source: {t['url']})\nTitle: {t['title']}\n"
-                        f"{t['text']}\n")
-    blocks.append({"type": "text", "text": "\n".join(text_ctx)})
-
-    # --- Image context (real image blocks + a caption line each) ---
-    sent = 0
-    for im in retrieved["images"]:
-        if sent >= config.MAX_IMAGES_TO_LLM:
-            break
-        block = _image_block(im["local_path"])
-        if block is None:
+    chunks = []
+    for line in resp.iter_lines():
+        if not line:
             continue
+        data = json.loads(line)
+        if "error" in data:
+            raise SystemExit(f"Ollama error: {data['error']}")
+        piece = data.get("message", {}).get("content", "")
+        chunks.append(piece)
+        if stream_to_stdout and piece:
+            print(piece, end="", flush=True)
+        if data.get("done"):
+            break
+    if stream_to_stdout:
+        print()
+    return "".join(chunks)
+
+
+# --------------------------------------------------------------------------
+# Backend: Anthropic (Claude via API)
+# --------------------------------------------------------------------------
+def _answer_anthropic(query, retrieved, stream_to_stdout):
+    import anthropic
+
+    if not config.ANTHROPIC_API_KEY:
+        raise SystemExit("Set ANTHROPIC_API_KEY, or use LLM_BACKEND='ollama'.")
+
+    images = _usable_images(retrieved)
+    blocks = [{"type": "text", "text": _text_context(retrieved)}]
+    for im, path, media_type in images:
         caption = im["caption"] or im["alt"] or "(no caption)"
         blocks.append({"type": "text",
                        "text": f"\nImage (source: {im['url']}) — caption: {caption}"})
-        blocks.append(block)
-        sent += 1
-
+        blocks.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": media_type,
+                       "data": base64.standard_b64encode(path.read_bytes()).decode()},
+        })
     blocks.append({"type": "text", "text": f"\n# Question\n{query}"})
-    return blocks
 
-
-def answer(query, stream_to_stdout=True):
-    if not config.ANTHROPIC_API_KEY:
-        raise SystemExit("Set ANTHROPIC_API_KEY in your environment first.")
-
-    retrieved = retrieve(query)
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    content = build_content(query, retrieved)
-
     with client.messages.stream(
         model=config.ANSWER_MODEL,
         max_tokens=config.MAX_TOKENS,
         thinking={"type": "adaptive"},
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": content}],
+        messages=[{"role": "user", "content": blocks}],
     ) as stream:
         if stream_to_stdout:
             for text in stream.text_stream:
                 print(text, end="", flush=True)
             print()
         final = stream.get_final_message()
+    return "".join(b.text for b in final.content if b.type == "text")
 
-    # Show which sources fed the answer.
-    used_imgs = [im for im in retrieved["images"]
-                 if (config.IMAGE_DIR / im["local_path"]).exists()]
+
+# --------------------------------------------------------------------------
+def answer(query, stream_to_stdout=True):
+    """Retrieve context and generate an answer with the configured backend."""
+    retrieved = retrieve(query)
+
+    if stream_to_stdout:
+        n_img = len(_usable_images(retrieved))
+        print(f"[backend: {config.LLM_BACKEND} | "
+              f"{len(retrieved['text'])} text chunks, {n_img} images retrieved]\n")
+
+    if config.LLM_BACKEND == "ollama":
+        text = _answer_ollama(query, retrieved, stream_to_stdout)
+    elif config.LLM_BACKEND == "anthropic":
+        text = _answer_anthropic(query, retrieved, stream_to_stdout)
+    else:
+        raise SystemExit(f"Unknown LLM_BACKEND: {config.LLM_BACKEND}")
+
     if stream_to_stdout:
         print("\n--- retrieved sources ---")
         for t in retrieved["text"]:
             print(f"  text  [{t['score']:.2f}] {t['url']}")
-        for im in used_imgs[:config.MAX_IMAGES_TO_LLM]:
+        for im, _, _ in _usable_images(retrieved):
             print(f"  image [{im['score']:.2f}] {im['local_path']}  ({im['url']})")
-    return final
+    return text
 
 
 def main():
     if len(sys.argv) > 1:
         answer(" ".join(sys.argv[1:]))
         return
-    print("GIKI RAG — ask a question (Ctrl+C or empty line to quit).\n")
+    print(f"GIKI RAG ({config.LLM_BACKEND}) — ask a question "
+          f"(empty line or Ctrl+C to quit).\n")
     while True:
         try:
             q = input("Q> ").strip()

@@ -6,17 +6,25 @@
 <!-- ============================================================= -->
 ## 📍 PROJECT STATUS — resume here
 
-**Last updated:** 2026-07-15 · **Phase:** 1 of 2 (scraping in progress)
+**Last updated:** 2026-07-17 · **Phase:** 2 of 2 (scrape DONE, building RAG)
+**Deadline:** Monday 2026-07-20 demo.
 
 ### Where we are
 - [x] Scraper built & tested (`giki_scraper/`)
 - [x] Completeness audit tool built (`giki_scraper/verify.py`)
-- [x] URL list collected — **3,370 pages** (`collect_urls.py` done)
-- [~] **Scraping in progress — ~1,210 / 3,370 pages done** (resumable)
-- [x] Multimodal RAG scaffold built & smoke-tested on partial data (`giki_rag/`)
-- [ ] Full scrape complete + final audit
-- [ ] Full `ingest.py` run (build complete vector store)
+- [x] URL list collected — **3,371 pages** (`collect_urls.py` done)
+- [x] **SCRAPE COMPLETE — 3,368/3,368 reachable pages (100%)**
+      - 26,254 image refs / 7,704 files downloaded; ~2.3 GB archive
+      - 3 URLs unreachable and NOT our bug: 2 are stale sitemap entries
+        (HTTP 404 at source), 1 (`/jobs/`) redirects to an offline separate
+        server (119.159.235.56:8081)
+- [x] Multimodal RAG scaffold built (`giki_rag/`)
+- [x] Local free LLM chosen: **Ollama + Qwen2.5-VL 3B** (vision, ~3.2GB, fits 6GB VRAM)
+      - `chat.py` supports both backends via `LLM_BACKEND` ("ollama" | "anthropic")
+- [~] Ollama model pull in progress (slow network; `ollama pull` resumes on retry)
+- [~] Full `ingest.py` run in progress (build complete vector store)
 - [ ] End-to-end RAG demo (`chat.py`)
+- [ ] `RAG_CONCEPTS.md` study guide (deep concepts for Monday)
 
 ### How to resume (on any PC)
 The scraped data/vector store are NOT in git (large + regenerable). On a fresh
