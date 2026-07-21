@@ -95,6 +95,9 @@ def _answer_ollama(query, retrieved, stream_to_stdout):
                         for _, p, _ in images]},
         ],
         "stream": True,
+        "options": {
+            "num_ctx": 8192
+        }
     }
 
     try:
@@ -105,6 +108,8 @@ def _answer_ollama(query, retrieved, stream_to_stdout):
             f"Cannot reach Ollama at {config.OLLAMA_URL}.\n"
             "Start it with:  ollama serve\n"
             f"And make sure the model is pulled:  ollama pull {config.OLLAMA_MODEL}")
+    if resp.status_code != 200:
+        print(resp.text)
     resp.raise_for_status()
 
     chunks = []
@@ -164,7 +169,7 @@ def _answer_anthropic(query, retrieved, stream_to_stdout):
 
 
 # --------------------------------------------------------------------------
-def answer(query, stream_to_stdout=True):
+def answer(query, stream_to_stdout=True, return_retrieval=False):
     """Retrieve context and generate an answer with the configured backend."""
     retrieved = retrieve(query)
 
@@ -186,6 +191,13 @@ def answer(query, stream_to_stdout=True):
             print(f"  text  [{t['score']:.2f}] {t['url']}")
         for im, _, _ in _usable_images(retrieved):
             print(f"  image [{im['score']:.2f}] {im['local_path']}  ({im['url']})")
+
+    if return_retrieval:
+        return {
+            "answer": text,
+            "retrieved": retrieved
+        }
+
     return text
 
 

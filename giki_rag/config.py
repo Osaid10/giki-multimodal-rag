@@ -27,8 +27,8 @@ CHUNK_SIZE = 900        # characters per text chunk
 CHUNK_OVERLAP = 150     # overlap so sentences aren't split mid-idea
 
 # --- Retrieval -------------------------------------------------------------
-TOP_K_TEXT = 6          # text chunks to retrieve per query
-TOP_K_IMAGES = 3        # images to retrieve per query
+TOP_K_TEXT = 3          # text chunks to retrieve per query
+TOP_K_IMAGES = 1        # images to retrieve per query
 MIN_IMAGE_SCORE = 0.20  # skip weakly-matched images (cosine similarity)
 
 # --- Answer generation -----------------------------------------------------
