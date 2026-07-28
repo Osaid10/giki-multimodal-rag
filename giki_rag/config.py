@@ -43,6 +43,9 @@ LLM_BACKEND = "ollama"
 OLLAMA_MODEL = "qwen2.5vl:3b"
 OLLAMA_URL = "http://localhost:11434"
 OLLAMA_TIMEOUT = 300          # local generation can be slow on a laptop GPU
+# Keep the model loaded in VRAM between questions so we don't pay a slow cold
+# reload each time. "30m" = stay 30 min after last use; "-1" = never unload.
+OLLAMA_KEEP_ALIVE = "30m"
 
 # -- Cloud backend (Claude), used only if LLM_BACKEND == "anthropic" --
 ANSWER_MODEL = "claude-opus-4-8"

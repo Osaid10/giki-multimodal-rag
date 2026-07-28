@@ -155,7 +155,7 @@ if prompt:
 
     with st.chat_message("assistant"):
 
-        with st.spinner("Searching knowledge base..."):
+        with st.spinner("Retrieving context and generating answer..."):
 
             result = answer(
                 prompt,

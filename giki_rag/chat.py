@@ -102,6 +102,10 @@ def _answer_ollama(query, retrieved, stream_to_stdout):
                         for _, p, _ in images]},
         ],
         "stream": True,
+        # Keep the model resident in VRAM between questions. Without this Ollama
+        # unloads it after ~5 min idle, so the next question pays a slow cold
+        # reload of the 3.2GB model — that, not retrieval, is the big wait.
+        "keep_alive": config.OLLAMA_KEEP_ALIVE,
         "options": {
             "num_ctx": 8192
         }
