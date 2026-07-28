@@ -2,6 +2,10 @@
 giki_scraper/giki_scrape/
 giki_rag/chroma_db/
 
+# --- Voice I/O: synthesized/recorded audio + downloaded voice models ---
+giki_rag/audio_cache/
+giki_rag/piper_voices/
+
 # --- Python ---
 __pycache__/
 *.pyc

@@ -51,3 +51,47 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # Only send images to Claude that are reasonably relevant AND exist on disk.
 MAX_IMAGES_TO_LLM = 3
+
+# --- Voice I/O ---------------------------------------------------------
+# Where synthesized speech + recorded audio are cached (git-ignored, regenerable).
+AUDIO_CACHE_DIR = Path(__file__).parent / "audio_cache"
+
+# Which TTS engine speaks answers aloud. Switchable like LLM_BACKEND:
+#   "edge"    -> Microsoft Edge neural TTS (cloud, needs internet, best quality)
+#   "piper"   -> local neural TTS (ONNX, CPU-fast, auto-downloads its voice model)
+#   "pyttsx3" -> offline Windows SAPI5 voices (instant, lower quality, zero download)
+# Winner of evaluate_tts.py's round-trip evaluation (lowest WER), see
+# giki_rag_tts_evaluation.csv: edge WER=0.255, piper WER=0.302, pyttsx3 WER=0.273.
+TTS_BACKEND = "edge"
+
+# -- edge-tts settings --
+EDGE_TTS_VOICE = "en-US-EmmaMultilingualNeural"
+EDGE_TTS_RATE = "+0%"
+
+# -- piper-tts settings --
+PIPER_VOICE_NAME = "en_US-lessac-medium"     # rhasspy/piper-voices model id
+PIPER_VOICE_DIR = Path(__file__).parent / "piper_voices"
+PIPER_MODEL_PATH = PIPER_VOICE_DIR / f"{PIPER_VOICE_NAME}.onnx"
+PIPER_CONFIG_PATH = PIPER_VOICE_DIR / f"{PIPER_VOICE_NAME}.onnx.json"
+PIPER_USE_CUDA = False        # keep the shared 6GB GPU free for Ollama
+
+# -- pyttsx3 settings --
+PYTTSX3_RATE = 175            # words/min (pyttsx3 default is ~200)
+PYTTSX3_VOICE_ID = None       # None -> engine default SAPI5 voice
+
+# -- STT (faster-whisper) — fixed component, not a config switch.
+# Used both for live voice input and for TTS round-trip evaluation.
+STT_MODEL_SIZE = "small"      # tiny/base/small/medium; base flubbed "GIKI" (a
+                               # proper noun in nearly every query) — small is
+                               # meaningfully more accurate at a modest CPU cost
+STT_DEVICE = "cpu"            # keep GPU free for Ollama's qwen2.5vl:3b
+STT_COMPUTE_TYPE = "int8"     # fastest CTranslate2 compute type on CPU
+# Force English: on short clips, Whisper's language auto-detect is unreliable
+# (observed guessing Urdu at 34% confidence on a clear English question) and
+# silently transcribes in the wrong script instead of erroring — GIKI RAG
+# content and queries are English, so there's no reason to auto-detect at all.
+STT_LANGUAGE = "en"
+# Biases recognition toward domain vocabulary Whisper wouldn't otherwise know
+# (GIKI is not a common word and gets misheard as "Jeekey"/"Chikib" otherwise).
+STT_INITIAL_PROMPT = ("GIKI, Ghulam Ishaq Khan Institute, admissions, "
+                      "undergraduate, hostel, faculty, scholarships.")

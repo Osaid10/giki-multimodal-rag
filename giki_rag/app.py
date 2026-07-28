@@ -1,6 +1,11 @@
+from pathlib import Path
+
 import streamlit as st
+from audio_recorder_streamlit import audio_recorder
 
 import config
+import stt
+import tts
 from chat import answer
 
 st.set_page_config(
@@ -46,6 +51,16 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
+    st.markdown("### 🔊 Voice")
+    _tts_options = ["edge", "piper", "pyttsx3"]
+    tts_choice = st.selectbox(
+        "TTS voice engine",
+        _tts_options,
+        index=_tts_options.index(config.TTS_BACKEND)
+        if config.TTS_BACKEND in _tts_options else 0,
+    )
+    speak_answers = st.checkbox("Speak answers aloud", value=True)
+
 # ------------------------------------------------------------
 # Header
 # ------------------------------------------------------------
@@ -67,6 +82,9 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
         if msg["role"] == "assistant":
+
+            if msg.get("audio_path") and Path(msg["audio_path"]).exists():
+                st.audio(msg["audio_path"])
 
             if msg.get("sources"):
 
@@ -97,10 +115,31 @@ for msg in st.session_state.messages:
                             )
 
 # ------------------------------------------------------------
-# User input
+# User input (typed or spoken)
 # ------------------------------------------------------------
 
-prompt = st.chat_input("Ask anything about GIKI...")
+col_rec, col_hint = st.columns([1, 8])
+with col_rec:
+    audio_bytes = audio_recorder(text="", icon_size="2x", key="voice_recorder")
+with col_hint:
+    st.caption("🎙 Click the mic to ask by voice, or type below.")
+
+typed_prompt = st.chat_input("Ask anything about GIKI...")
+
+prompt = None
+if typed_prompt:
+    prompt = typed_prompt
+elif audio_bytes and audio_bytes != st.session_state.get("_last_audio_bytes"):
+    # audio_recorder keeps returning the same bytes on every rerun until a new
+    # recording is made — without this guard the same question would be
+    # re-submitted after every st.rerun() (e.g. right after the answer renders).
+    st.session_state["_last_audio_bytes"] = audio_bytes
+    with st.spinner("Transcribing..."):
+        transcribed = stt.transcribe(audio_bytes)
+    if transcribed.strip():
+        prompt = transcribed
+    else:
+        st.warning("Could not transcribe any speech — try again.")
 
 if prompt:
 
@@ -125,6 +164,12 @@ if prompt:
             )
 
         st.markdown(result["answer"])
+
+        answer_audio_path = None
+        if speak_answers:
+            with st.spinner("Synthesizing speech..."):
+                answer_audio_path = tts.synthesize(result["answer"], backend=tts_choice)
+            st.audio(str(answer_audio_path), autoplay=True)
 
         retrieved = result["retrieved"]
 
@@ -157,7 +202,8 @@ if prompt:
             "role": "assistant",
             "content": result["answer"],
             "sources": retrieved["text"],
-            "images": retrieved["images"]
+            "images": retrieved["images"],
+            "audio_path": str(answer_audio_path) if answer_audio_path else None
         }
     )
 

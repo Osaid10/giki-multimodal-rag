@@ -6,8 +6,8 @@
 <!-- ============================================================= -->
 ## 📍 PROJECT STATUS — resume here
 
-**Last updated:** 2026-07-17 · **Phase:** 2 of 2 (scrape DONE, building RAG)
-**Deadline:** Monday 2026-07-20 demo.
+**Last updated:** 2026-07-28 · **Phase:** 2 of 2 (scrape DONE, RAG + voice done)
+**Deadline:** Monday 2026-07-20 demo (met); voice I/O added afterward.
 
 ### Where we are
 - [x] Scraper built & tested (`giki_scraper/`)
@@ -21,9 +21,32 @@
 - [x] Multimodal RAG scaffold built (`giki_rag/`)
 - [x] Local free LLM chosen: **Ollama + Qwen2.5-VL 3B** (vision, ~3.2GB, fits 6GB VRAM)
       - `chat.py` supports both backends via `LLM_BACKEND` ("ollama" | "anthropic")
-- [~] Ollama model pull in progress (slow network; `ollama pull` resumes on retry)
-- [~] Full `ingest.py` run in progress (build complete vector store)
-- [ ] End-to-end RAG demo (`chat.py`)
+- [x] Ollama model pulled; full `ingest.py` run complete (13,933 text chunks, 4,253 images)
+- [x] End-to-end RAG demo (`chat.py`, `app.py` Streamlit UI, `generate_eval_csv.py`)
+- [x] **Voice I/O added** (2026-07-28): `stt.py` (faster-whisper) for spoken
+      questions, `tts.py` (edge-tts / piper / pyttsx3, switchable via
+      `TTS_BACKEND`) for spoken answers. Compared via round-trip WER/ROUGE-L/
+      BERTScore in `evaluate_tts.py` (`giki_rag/giki_rag_tts_evaluation.csv`) —
+      TTS models are scored by synthesizing text, transcribing it back with a
+      fixed STT model, and comparing to the original text, since WER/ROUGE/
+      BERTScore compare text-to-text and can't score audio directly.
+      **Winner: edge-tts** (WER 0.255 vs piper 0.302 / pyttsx3 0.273; pyttsx3 is
+      ~60x faster and offline if that tradeoff is preferred instead). Wired
+      into `app.py` (mic input + autoplay spoken answers) and `voice_chat.py`
+      (CLI voice loop). Bugs found & fixed during live testing:
+      - cached pyttsx3 engine hung on repeated calls (Windows SAPI5) → fresh
+        engine per call;
+      - bert-score's default model needed an unreachable HF LFS download →
+        switched to the already-cached `all-MiniLM-L6-v2`;
+      - STT transcribed English speech as Urdu script (Whisper auto-detect
+        unreliable on short clips) → forced `STT_LANGUAGE="en"`, added an
+        `STT_INITIAL_PROMPT` for GIKI vocabulary, bumped model `base`→`small`;
+      - small LLM echoed raw retrieved-context scaffolding (`[2]`, `Title:`,
+        inline `(source:)`) into answers → tightened `SYSTEM_PROMPT` to forbid
+        it and prefer clean bulleted answers with sources at the end.
+      - NOTE: if answers ever come back as `@@@@` garbage, the Ollama server
+        has gotten into a bad state (seen after heavy eval querying) — restart
+        it (kill `ollama.exe`; the tray app relaunches the server).
 - [ ] `RAG_CONCEPTS.md` study guide (deep concepts for Monday)
 
 ### How to resume (on any PC)
