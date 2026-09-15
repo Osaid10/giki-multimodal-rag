@@ -1,112 +1,120 @@
-# GIKI Scrape + Multimodal RAG (Internship Project)
+# Multimodal RAG over a 3,368-page university website
 
-<!-- ============================================================= -->
-<!-- RESUME POINT — a Claude on another PC should READ THIS FIRST.  -->
-<!-- Keep this block updated as tasks complete.                    -->
-<!-- ============================================================= -->
-## 📍 PROJECT STATUS — resume here
+An end-to-end pipeline that archives an entire university site, builds a
+**multimodal** vector index over it (text **and** images), and answers spoken or
+typed questions with cited, grounded answers — running **fully offline** on a
+local 3B vision model.
 
-**Last updated:** 2026-07-28 · **Phase:** 2 of 2 (scrape DONE, RAG + voice done)
-**Deadline:** Monday 2026-07-20 demo (met); voice I/O added afterward.
+Built during an internship at [GIK Institute](https://giki.edu.pk). Two stages,
+each usable on its own:
 
-### Where we are
-- [x] Scraper built & tested (`giki_scraper/`)
-- [x] Completeness audit tool built (`giki_scraper/verify.py`)
-- [x] URL list collected — **3,371 pages** (`collect_urls.py` done)
-- [x] **SCRAPE COMPLETE — 3,368/3,368 reachable pages (100%)**
-      - 26,254 image refs / 7,704 files downloaded; ~2.3 GB archive
-      - 3 URLs unreachable and NOT our bug: 2 are stale sitemap entries
-        (HTTP 404 at source), 1 (`/jobs/`) redirects to an offline separate
-        server (119.159.235.56:8081)
-- [x] Multimodal RAG scaffold built (`giki_rag/`)
-- [x] Local free LLM chosen: **Ollama + Qwen2.5-VL 3B** (vision, ~3.2GB, fits 6GB VRAM)
-      - `chat.py` supports both backends via `LLM_BACKEND` ("ollama" | "anthropic")
-- [x] Ollama model pulled; full `ingest.py` run complete (13,933 text chunks, 4,253 images)
-- [x] End-to-end RAG demo (`chat.py`, `app.py` Streamlit UI, `generate_eval_csv.py`)
-- [x] **Voice I/O added** (2026-07-28): `stt.py` (faster-whisper) for spoken
-      questions, `tts.py` (edge-tts / piper / pyttsx3, switchable via
-      `TTS_BACKEND`) for spoken answers. Compared via round-trip WER/ROUGE-L/
-      BERTScore in `evaluate_tts.py` (`giki_rag/giki_rag_tts_evaluation.csv`) —
-      TTS models are scored by synthesizing text, transcribing it back with a
-      fixed STT model, and comparing to the original text, since WER/ROUGE/
-      BERTScore compare text-to-text and can't score audio directly.
-      **Winner: edge-tts** (WER 0.255 vs piper 0.302 / pyttsx3 0.273; pyttsx3 is
-      ~60x faster and offline if that tradeoff is preferred instead). Wired
-      into `app.py` (mic input + autoplay spoken answers) and `voice_chat.py`
-      (CLI voice loop). Bugs found & fixed during live testing:
-      - cached pyttsx3 engine hung on repeated calls (Windows SAPI5) → fresh
-        engine per call;
-      - bert-score's default model needed an unreachable HF LFS download →
-        switched to the already-cached `all-MiniLM-L6-v2`;
-      - STT transcribed English speech as Urdu script (Whisper auto-detect
-        unreliable on short clips) → forced `STT_LANGUAGE="en"`, added an
-        `STT_INITIAL_PROMPT` for GIKI vocabulary, bumped model `base`→`small`;
-      - small LLM echoed raw retrieved-context scaffolding (`[2]`, `Title:`,
-        inline `(source:)`) into answers → tightened `SYSTEM_PROMPT` to forbid
-        it and prefer clean bulleted answers with sources at the end.
-      - NOTE: if answers ever come back as `@@@@` garbage, the Ollama server
-        has gotten into a bad state (seen after heavy eval querying) — restart
-        it (kill `ollama.exe`; the tray app relaunches the server).
-- [ ] `RAG_CONCEPTS.md` study guide (deep concepts for Monday)
+| Stage | What it does |
+| --- | --- |
+| [`giki_scraper/`](giki_scraper/) | Polite, resumable crawler that archives page text, images (with captions/alt text) and files (PDF/DOC), plus a completeness auditor |
+| [`giki_rag/`](giki_rag/) | Multimodal RAG over that archive — retrieval, chat UI, voice I/O, and an automated evaluation harness |
 
-### How to resume (on any PC)
-The scraped data/vector store are NOT in git (large + regenerable). On a fresh
-machine you must rebuild them:
+## Architecture
+
+```mermaid
+flowchart LR
+    A[giki.edu.pk<br/>3,371 URLs] -->|collect_urls.py| B[URL frontier]
+    B -->|scrape.py<br/>resumable| C[(Local archive<br/>~2.3 GB)]
+    C -->|verify.py| C
+
+    C -->|ingest.py| D[all-MiniLM-L6-v2<br/>13,933 text chunks]
+    C -->|ingest.py| E[CLIP ViT-B/32<br/>4,253 images]
+    D --> F[(ChromaDB)]
+    E --> F
+
+    G([Voice question]) -->|stt.py<br/>faster-whisper| H
+    I([Typed question]) --> H[retrieve.py]
+    F --> H
+    H -->|text + image context| J[Qwen2.5-VL 3B<br/>via Ollama]
+    J --> K[Cited answer]
+    K -->|tts.py<br/>edge-tts| L([Spoken answer])
+```
+
+## Results
+
+**Retrieval quality** — 20 held-out questions across admissions, academics,
+faculty, facilities and fees ([`giki_rag_evaluation.csv`](giki_rag/giki_rag_evaluation.csv)):
+
+| Metric | Value |
+| --- | --- |
+| Questions answered from retrieved context | **18 / 20 (90%)** |
+| Mean top-1 text similarity | 0.621 |
+| Median end-to-end latency | 15.7 s |
+| Images retrieved per query | 1.0 |
+
+Latency is a local 3B model on 6 GB VRAM, not an API — the tradeoff bought
+zero inference cost and no data leaving the machine.
+
+**Voice backend selection** — three TTS engines scored on 8 answers each
+([`giki_rag_tts_evaluation.csv`](giki_rag/giki_rag_tts_evaluation.csv)):
+
+| Backend | WER ↓ | ROUGE-L ↑ | BERTScore ↑ | Synthesis (s) ↓ |
+| --- | --- | --- | --- | --- |
+| **edge-tts** | **0.255** | **0.931** | **0.852** | 16.48 |
+| pyttsx3 | 0.273 | 0.916 | 0.844 | **0.27** |
+| piper | 0.302 | 0.923 | 0.842 | 2.91 |
+
+WER/ROUGE/BERTScore compare text to text and cannot score audio directly, so
+each backend is scored by a **round trip**: synthesize the answer, transcribe
+the audio back with a fixed STT model, and compare the transcript to the
+original text. `edge-tts` wins on fidelity and ships as the default; `pyttsx3`
+is ~60× faster and fully offline if that tradeoff is preferred.
+
+## Quickstart
+
+The archive and vector store are **not in this repo** (several GB, and
+regenerable). Rebuild them:
+
 ```bash
+# 1. Archive the site  (~2.3 GB, resumable — re-run until verify.py is clean)
 cd giki_scraper && pip install -r requirements.txt
-python collect_urls.py && python scrape.py   # resumable; re-run until verify.py is clean
-python verify.py                             # confirm 100% coverage
+python collect_urls.py
+python scrape.py
+python verify.py            # audits completeness, reports unreachable URLs
+
+# 2. Build the index and ask a question
 cd ../giki_rag && pip install -r requirements.txt
-setx ANTHROPIC_API_KEY "sk-ant-..."          # then open a new shell
-python ingest.py --reset                     # build vector store
+ollama pull qwen2.5vl:3b    # default backend — free, local, vision-capable
+python ingest.py --reset
 python chat.py "What programs does GIKI offer?"
-```
-If the data folders were copied over manually (via cloud storage), skip the
-scrape and go straight to `ingest.py`.
 
-### Known notes / gotchas
-- giki.edu.pk has a broken SSL cert chain → `VERIFY_SSL=False` in config (intentional).
-- Dead hosts `beta1.` / `www.` rewritten to live domain automatically.
-- ~34 images + ~5 files are hard 404s at the source (2015-era, deleted) — unrecoverable, not a bug.
-- Defaults: ChromaDB · text=all-MiniLM-L6-v2 · images=CLIP clip-ViT-B-32 · LLM=claude-opus-4-8.
-<!-- ============================================================= -->
-
-Two-stage project:
-1. **`giki_scraper/`** — archives the entire [giki.edu.pk](https://giki.edu.pk)
-   website: page text, images (with captions/alt), and files (PDFs/docs).
-2. **`giki_rag/`** — a **multimodal RAG** over that archive: ask a question,
-   retrieve relevant text **and** images, and get a cited answer from Claude.
-
-Each folder has its own detailed `README.md`.
-
-## Resuming on another PC
-The scraped data and vector store are **not** in this repo (they're several GB
-and regenerable). To continue elsewhere:
-
-```bash
-git clone <this-repo-url>
-cd "Osaid Internship"
-
-# 1. Scraper
-cd giki_scraper
-pip install -r requirements.txt
-python collect_urls.py      # rebuild the URL list (~1 min)
-python scrape.py            # (re)build the archive — resumable
-python verify.py            # audit completeness
-
-# 2. RAG
-cd ../giki_rag
-pip install -r requirements.txt
-setx ANTHROPIC_API_KEY "sk-ant-..."   # Windows (new shell after)
-python ingest.py --reset    # build the vector store from the archive
-python chat.py "What programs does GIKI offer?"
+# 3. Or use the UI  (mic input + spoken answers)
+streamlit run app.py
 ```
 
-> The scraped archive is regenerated by re-running the scraper. If you want the
-> *exact* data moved between machines instead of re-scraping, copy the
-> `giki_scraper/giki_scrape/` and `giki_rag/chroma_db/` folders directly (e.g.
-> via cloud storage) — they're deliberately excluded from git.
+`LLM_BACKEND` switches between `ollama` (default) and `anthropic`; set
+`ANTHROPIC_API_KEY` for the latter. `TTS_BACKEND` switches the voice engine.
+Full option list in [`giki_rag/config.py`](giki_rag/config.py).
 
-## What's tracked in git
-Only the **code** (scripts, configs, requirements, docs). The generated data
-(`giki_scrape/`, `chroma_db/`, caches, logs) is git-ignored on purpose.
+## Engineering notes
+
+Things that only show up once you run it against a real site:
+
+- **Whisper mis-detected short English clips as Urdu.** Forced `STT_LANGUAGE="en"`,
+  added a domain-vocabulary `STT_INITIAL_PROMPT`, and moved `base` → `small`.
+- **The 3B model echoed retrieval scaffolding** (`[2]`, `Title:`, inline
+  `(source:)`) into its answers. Fixed in the system prompt rather than by
+  post-processing, so citations stay at the end where they belong.
+- **BERTScore's default model needed an unreachable download** — switched
+  scoring to the already-cached `all-MiniLM-L6-v2`.
+- **`pyttsx3` hung on repeated calls** (Windows SAPI5 engine reuse) — fresh
+  engine per call.
+- **The source site has a broken SSL chain**, and dead `beta1.`/`www.` hosts are
+  rewritten to the live domain automatically.
+- **3 of 3,371 URLs are unreachable at the source** (stale sitemap entries, one
+  service on an offline host) — reported by `verify.py` rather than silently
+  skipped, which is how you tell a crawler bug from a dead link.
+
+## Scraping conduct
+
+The crawler identifies itself in its User-Agent with a contact address, rate-limits
+itself, is restricted to one institution's own public pages, and was run for an
+educational project at that institution. The archive is not redistributed here.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
