@@ -5,8 +5,8 @@ An end-to-end pipeline that archives an entire university site, builds a
 typed questions with cited, grounded answers — running **fully offline** on a
 local 3B vision model.
 
-Built during an internship at [GIK Institute](https://giki.edu.pk). Two stages,
-each usable on its own:
+Built during an agentic-AI internship at Mercurial Minds; the site archived is
+[giki.edu.pk](https://giki.edu.pk). Two stages, each usable on its own:
 
 | Stage | What it does |
 | --- | --- |
